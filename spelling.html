@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sunny Speller 🌞 — Fun Spelling Trainer</title>
+<style>
+body{font-family:sans-serif;background:#fff7eb;margin:0;padding:20px}
+h1{font-size:28px}
+.card{background:#fff;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.1);padding:16px;margin-bottom:20px}
+.btn{background:#2ec4b6;color:#fff;border:none;border-radius:8px;padding:8px 12px;margin:4px;cursor:pointer}
+.big-word{font-size:36px;text-align:center;margin:20px 0}
+.answer input{font-size:20px;padding:6px}
+.hint{color:#666;font-size:14px;margin-top:6px}
+.green{color:green}.red{color:red}
+.tile-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:12px 0}
+.tile{padding:12px 14px;border:2px solid #ccc;border-radius:8px;background:#fff;font-size:20px;font-weight:bold;cursor:grab}
+.dropzone{min-width:40px;min-height:40px;border:2px dashed #aaa;border-radius:8px;padding:8px;display:flex;align-items:center;justify-content:center;background:#fafafa}
+.hidden{display:none}
+.score{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.score span{background:#fff8f0;border:1px dashed #ffd9a8;padding:6px 10px;border-radius:8px}
+</style>
+</head>
+<body>
+<h1>Sunny Speller 🌞</h1>
+
+<div class="score">
+  <span>⭐ Stars: <b id="stars">0</b></span>
+  <span>🔥 Streak: <b id="streak">0</b></span>
+  <span>🎯 Accuracy: <b id="acc">—</b></span>
+</div>
+<button class="btn" id="btnResetStats">♻️ Reset Stats</button>
+
+<div class="card">
+  <h2>Choose Mode</h2>
+  <button class="btn" id="btnModeSpell">🎧 Spell It</button>
+  <button class="btn" id="btnModeJumble">🔤 Jumble Fix</button>
+</div>
+
+<div class="card" id="spellMode">
+  <h2>Spell It! (Listen & Type)</h2>
+  <button class="btn" id="btnNext">Next Word ➡️</button>
+  <button class="btn" id="btnHear">🔊 Hear</button>
+  <div class="big-word" id="maskedWord">• • •</div>
+  <div class="answer">
+    <input id="answer" type="text" placeholder="Type the word…" />
+    <button class="btn" id="btnCheck">Check ✅</button>
+  </div>
+  <div id="feedback" class="hint"></div>
+</div>
+
+<div class="card hidden" id="jumbleMode">
+  <h2>Jumble Fix (Drag the Letters)</h2>
+  <button class="btn" id="btnNextJumble">Next Word ➡️</button>
+  <div class="tile-row" id="jumbleTiles"></div>
+  <div class="tile-row" id="dropRow"></div>
+  <button class="btn" id="btnJumbleCheck">Check ✅</button>
+  <div id="jumbleFeedback" class="hint"></div>
+</div>
+
+<div class="card">
+  <h2>Voice Settings ⚙️</h2>
+  <label>
+    Voice:
+    <select id="voiceSelect"></select>
+  </label>
+  <br><br>
+  <label>
+    Rate: <input id="rate" type="range" min="0.6" max="1.4" step="0.1" value="0.9" />
+    <span id="rateVal">0.9</span>
+  </label>
+  <br><br>
+  <label>
+    Pitch: <input id="pitch" type="range" min="0.7" max="1.3" step="0.1" value="1.0" />
+    <span id="pitchVal">1.0</span>
+  </label>
+  <br><br>
+  <button class="btn" id="btnSpeakTest">🔊 Test Voice</button>
+</div>
+
+<script>
+/* ========= EMBEDDED WORD BANK ========= */
+let words = [
+  {w:'step', added:'2025-09-08'},
+  {w:'mess', added:'2025-09-08'},
+  {w:'head', added:'2025-09-08'},
+  {w:'crops', added:'2025-09-08'},
+  {w:'stop', added:'2025-09-08'},
+  {w:'rock', added:'2025-09-08'},
+  {w:'clock', added:'2025-09-08'},
+  {w:'sock', added:'2025-09-08'},
+  {w:'pond', added:'2025-09-08'},
+  {w:'jumps', added:'2025-09-08'},
+  {w:'shut', added:'2025-09-08'},
+  {w:'luck', added:'2025-09-08'},
+  {w:'slump', added:'2025-09-08'},
+  {w:'bugs', added:'2025-09-08'},
+  {w:'mug', added:'2025-09-08'},
+  {w:'hiccup', added:'2025-09-08'},
+  {w:'publish', added:'2025-09-08'},
+  {w:'laundry', added:'2025-09-08'}
+];
+
+/* ========= Stats (persistent) ========= */
+let stats = JSON.parse(localStorage.getItem("speller_stats") || 
+             '{"stars":0,"streak":0,"correct":0,"total":0}');
+function saveStats(){ localStorage.setItem("speller_stats", JSON.stringify(stats)); }
+function updateStatsUI(){
+  document.getElementById('stars').textContent=stats.stars;
+  document.getElementById('streak').textContent=stats.streak;
+  document.getElementById('acc').textContent=stats.total
+    ? Math.round(100*stats.correct/stats.total)+'%'
+    : '—';
+}
+document.getElementById('btnResetStats').addEventListener('click',()=>{
+  if(confirm("Reset all stats?")){
+    stats={stars:0,streak:0,correct:0,total:0};
+    saveStats(); updateStatsUI();
+  }
+});
+
+/* ========= Helpers ========= */
+function maskWord(w){ return w.split('').map(_=>'•').join(' '); }
+function pickWord(){ return words[Math.floor(Math.random()*words.length)].w; }
+
+/* ========= Spell Mode ========= */
+let current=null;
+function startRound(){
+  current=pickWord();
+  document.getElementById('maskedWord').textContent=maskWord(current);
+  document.getElementById('answer').value='';
+  document.getElementById('feedback').textContent='';
+  speakWord(current);
+}
+function checkAnswer(){
+  if(!current) return;
+  stats.total++;
+  const guess=document.getElementById('answer').value.trim().toLowerCase();
+  if(guess===current.toLowerCase()){
+    stats.correct++; stats.stars++; stats.streak++;
+    document.getElementById('feedback').innerHTML=`✅ <span class="green">Great!</span> It’s <b>${current}</b>.`;
+    updateStatsUI(); saveStats();
+    setTimeout(startRound,800);
+  }else{
+    stats.streak=0;
+    document.getElementById('feedback').innerHTML=`❌ <span class="red">Try again.</span>`;
+    updateStatsUI(); saveStats();
+  }
+}
+document.getElementById('btnNext').addEventListener('click',startRound);
+document.getElementById('btnHear').addEventListener('click',()=>current&&speakWord(current));
+document.getElementById('btnCheck').addEventListener('click',checkAnswer);
+
+/* ========= Jumble Mode ========= */
+let currentJ=null;
+function setupJumble(){
+  currentJ=pickWord();
+  const letters=shuffle(currentJ.split(''));
+  const tiles=document.getElementById('jumbleTiles'); tiles.innerHTML='';
+  const drop=document.getElementById('dropRow'); drop.innerHTML='';
+  for(const ch of letters){ tiles.appendChild(makeTile(ch)); }
+  for(let i=0;i<currentJ.length;i++){ drop.appendChild(makeDrop()); }
+  document.getElementById('jumbleFeedback').textContent='';
+}
+function makeTile(ch){
+  const el=document.createElement('div');
+  el.className='tile'; el.textContent=ch.toUpperCase(); el.draggable=true;
+  el.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain',ch); el.classList.add('dragging'); });
+  el.addEventListener('dragend',()=>el.classList.remove('dragging'));
+  return el;
+}
+function makeDrop(){
+  const dz=document.createElement('div'); dz.className='dropzone';
+  dz.addEventListener('dragover',e=>e.preventDefault());
+  dz.addEventListener('drop',e=>{
+    e.preventDefault();
+    const ch=e.dataTransfer.getData('text/plain');
+    if(!ch) return;
+    if(dz.firstChild) return;
+    dz.textContent=ch.toUpperCase();
+    dz.classList.add('tile');
+  });
+  return dz;
+}
+function checkJumble(){
+  stats.total++;
+  let guess='';
+  document.querySelectorAll('#dropRow .tile').forEach(t=>guess+=t.textContent.toLowerCase());
+  if(guess===currentJ){
+    stats.correct++; stats.stars++; stats.streak++;
+    document.getElementById('jumbleFeedback').innerHTML=`🎉 Correct! The word is <b>${currentJ}</b>.`;
+    updateStatsUI(); saveStats();
+    setTimeout(setupJumble,900);
+  }else{
+    stats.streak=0;
+    document.getElementById('jumbleFeedback').innerHTML=`❌ <span class="red">Not yet, try again.</span>`;
+    updateStatsUI(); saveStats();
+  }
+}
+function shuffle(a){const arr=[...a];for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;}
+document.getElementById('btnNextJumble').addEventListener('click',setupJumble);
+document.getElementById('btnJumbleCheck').addEventListener('click',checkJumble);
+
+/* ========= Mode Switch ========= */
+document.getElementById('btnModeSpell').addEventListener('click',()=>{
+  document.getElementById('spellMode').classList.remove('hidden');
+  document.getElementById('jumbleMode').classList.add('hidden');
+  startRound();
+});
+document.getElementById('btnModeJumble').addEventListener('click',()=>{
+  document.getElementById('jumbleMode').classList.remove('hidden');
+  document.getElementById('spellMode').classList.add('hidden');
+  setupJumble();
+});
+
+/* ========= Speech with persistent prefs ========= */
+let voices=[];
+let prefs = JSON.parse(localStorage.getItem("speller_prefs") || 
+             '{"rate":0.9,"pitch":1.0,"voiceURI":null}');
+function savePrefs(){ localStorage.setItem("speller_prefs", JSON.stringify(prefs)); }
+function loadVoices(){
+  voices=speechSynthesis.getVoices();
+  const sel=document.getElementById('voiceSelect');
+  sel.innerHTML='';
+  const en=voices.filter(v=>/^en/i.test(v.lang));
+  (en.length?en:voices).forEach(v=>{
+    const opt=document.createElement('option');
+    opt.value=v.voiceURI;
+    opt.textContent=`${v.name} (${v.lang})`;
+    sel.appendChild(opt);
+  });
+  if(prefs.voiceURI){ sel.value=prefs.voiceURI; }
+}
+speechSynthesis.onvoiceschanged=loadVoices;
+function speakWord(w){
+  if(!('speechSynthesis' in window)) return;
+  const u=new SpeechSynthesisUtterance(w);
+  const v=voices.find(v=>v.voiceURI===prefs.voiceURI);
+  if(v) u.voice=v;
+  u.rate=prefs.rate; u.pitch=prefs.pitch;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+document.getElementById('voiceSelect').addEventListener('change',e=>{
+  prefs.voiceURI=e.target.value; savePrefs();
+});
+document.getElementById('rate').addEventListener('input',e=>{
+  prefs.rate=+e.target.value;
+  document.getElementById('rateVal').textContent=e.target.value;
+  savePrefs();
+});
+document.getElementById('pitch').addEventListener('input',e=>{
+  prefs.pitch=+e.target.value;
+  document.getElementById('pitchVal').textContent=e.target.value;
+  savePrefs();
+});
+document.getElementById('btnSpeakTest').addEventListener('click',()=>{
+  speakWord("Sunny Speller!");
+});
+
+/* ========= Init ========= */
+window.addEventListener("load",()=>{
+  updateStatsUI();
+  document.getElementById('rate').value=prefs.rate;
+  document.getElementById('rateVal').textContent=prefs.rate;
+  document.getElementById('pitch').value=prefs.pitch;
+  document.getElementById('pitchVal').textContent=prefs.pitch;
+  loadVoices();
+  startRound();
+});
+</script>
+</body>
+</html>
